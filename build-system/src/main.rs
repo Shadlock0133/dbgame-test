@@ -7,6 +7,11 @@ use std::{
 
 use clap::Parser;
 
+#[cfg(unix)]
+const DREAMBOX_NAME: &str = "DreamboxVM";
+#[cfg(windows)]
+const DREAMBOX_NAME: &str = "DreamboxVM.exe";
+
 #[derive(Parser)]
 enum Opt {
     Build(BuildOpt),
@@ -82,17 +87,22 @@ fn build(opt: BuildOpt) -> Result<PathBuf, ()> {
 fn run(game: &Path, _opt: RunOpt) -> ExitCode {
     let dreambox_path = env::var_os("DREAMBOX_PATH")
         .expect("Missing DREAMBOX_PATH env variable");
-    let status = Command::new("./DreamboxVM")
+    let dreambox_exe = Path::new(&dreambox_path).join(DREAMBOX_NAME);
+    if !dreambox_exe.exists() {
+        eprintln!("missing {DREAMBOX_NAME} at {}", dreambox_exe.display());
+    }
+    let status = Command::new(dreambox_exe)
         .arg("-b")
         .arg("-s")
         .arg(game)
         .current_dir(dreambox_path)
-        .status();
-    eprintln!("{status:?}");
-    match status {
-        Ok(s) if !s.success() => ExitCode::FAILURE,
-        Err(_) => ExitCode::FAILURE,
-        Ok(_) => ExitCode::SUCCESS,
+        .status()
+        .unwrap();
+    if !status.success() {
+        eprintln!("{DREAMBOX_NAME} returned non-zero status");
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     }
 }
 
