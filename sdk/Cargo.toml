@@ -1,0 +1,18 @@
+[package]
+name = "sdk"
+version = "0.1.0"
+edition = "2024"
+authors = [ "Aurora", "Hazel Stagner" ]
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+libm = "0.2.15"
+bitflags = "2.9.4"
+dbsdk-vu-asm = "0.1.0"
+
+# bitmask complains without this
+[features]
+default = ["std"]
+std = ["bitflags/std"]

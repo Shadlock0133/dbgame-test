@@ -1,0 +1,4 @@
+[workspace]
+resolver = "3"
+members = ["build-system", "sdk", "dbgame-test", "iso"]
+default-members = ["build-system"]

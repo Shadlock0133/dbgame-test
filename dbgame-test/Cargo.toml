@@ -1,0 +1,11 @@
+[package]
+name = "dbgame-test"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sdk = { path = "../sdk" }
