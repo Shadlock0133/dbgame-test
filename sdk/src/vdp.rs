@@ -441,7 +441,7 @@ pub fn set_vu_stride(stride: usize) {
 /// Upload a new VU program
 pub fn upload_vu_program(program: &[u32]) {
     unsafe {
-        let program_len = program.len() * 4;
+        let program_len = core::mem::size_of_val(program);
         vdp_uploadVUProgram(program.as_ptr().cast(), program_len as i32);
     }
 }

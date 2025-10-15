@@ -8,4 +8,6 @@ license = "MIT"
 crate-type = ["cdylib"]
 
 [dependencies]
+byteorder = "1.5.0"
+image = { version = "0.25.8", default-features = false, features = ["png"] }
 sdk = { path = "../sdk" }
