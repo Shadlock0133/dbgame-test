@@ -31,6 +31,7 @@ static TEXTURE: &[u8] = include_bytes!("../../assets/untitled.png");
 static TEXTURE_DATA: LazyLock<Vec<u8>> = LazyLock::new(|| {
     image::load_from_memory_with_format(TEXTURE, ImageFormat::Png)
         .unwrap()
+        .flipv()
         .into_rgba8()
         .into_raw()
 });
@@ -164,22 +165,22 @@ fn draw(state: &State) {
     vdp::upload_vu_program(PRG_PROJ);
     vdp::submit_vu::<f32>(Topology::TriangleList, &MODEL_DATA);
     // vdp::upload_vu_program(PRG_STAT);
-    vdp::submit_vu::<f32>(
-        Topology::TriangleList,
-        [
-            [0.0, 0.0, 0.0, 1.0],
-            [0.0; 4],
-            [0.0; 4],
-            [0.0; 4],
-            [0.0, 1.0, 0.0, 1.0],
-            [0.0; 4],
-            [0.0; 4],
-            [0.0; 4],
-            [1.0, 1.0, 0.0, 1.0],
-            [0.0; 4],
-            [0.0; 4],
-            [0.0; 4],
-        ]
-        .as_flattened(),
-    );
+    // vdp::submit_vu::<f32>(
+    //     Topology::TriangleList,
+    //     [
+    //         [0.0, 0.0, 0.0, 1.0],
+    //         [0.0; 4],
+    //         [0.0; 4],
+    //         [0.0; 4],
+    //         [0.0, 1.0, 0.0, 1.0],
+    //         [0.0; 4],
+    //         [0.0; 4],
+    //         [0.0; 4],
+    //         [1.0, 1.0, 0.0, 1.0],
+    //         [0.0; 4],
+    //         [0.0; 4],
+    //         [0.0; 4],
+    //     ]
+    //     .as_flattened(),
+    // );
 }
