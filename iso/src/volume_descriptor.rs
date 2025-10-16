@@ -5,13 +5,14 @@ use crate::directory_entry::DirectoryEntry;
 use crate::file_entry::FileEntry;
 use crate::utils::LOGIC_SIZE_U16;
 
+use std::borrow::Cow;
 use std::io::prelude::*;
 
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum VolumeDescriptor {
     Boot,
-    Primary,
+    Primary(Cow<'static, [u8]>),
     Supplementary,
     Volume,
     End,
@@ -21,7 +22,7 @@ impl VolumeDescriptor {
     fn get_type_id(&self) -> u8 {
         match self {
             VolumeDescriptor::Boot => 0,
-            VolumeDescriptor::Primary => 1,
+            VolumeDescriptor::Primary(_) => 1,
             VolumeDescriptor::Supplementary => 2,
             VolumeDescriptor::Volume => 3,
             VolumeDescriptor::End => 0xff,
@@ -70,14 +71,16 @@ impl VolumeDescriptor {
                 let empty_data_2: [u8; 0x7b5] = [0; 0x7b5];
                 output_writter.write_all(&empty_data_2)?;
             }
-            VolumeDescriptor::Primary => {
+            VolumeDescriptor::Primary(name) => {
                 output_writter.write_u8(0)?;
 
                 let system_identifier: [u8; 32] = [0x20; 32];
                 output_writter.write_all(&system_identifier)?;
 
-                output_writter
-                    .write_all(b"ISOIMAGE                        ")?;
+                let mut name_buf = [b' '; 32];
+                let len = name.len().min(32);
+                name_buf[..len].copy_from_slice(&name[..len]);
+                output_writter.write_all(&name_buf)?;
                 output_writter.write_u64::<LittleEndian>(0)?;
 
                 // Size of the volume in LB

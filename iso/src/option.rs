@@ -6,6 +6,7 @@ pub struct Opt {
     pub grub2_mbr: Option<String>,
     pub boot_load_size: u32,
     pub protective_msdos_label: bool,
+    pub primary_volume_name: Option<String>,
     pub input_files: Vec<PathBuf>,
 }
 

@@ -69,10 +69,15 @@ fn reserve_file_space(
     }
 }
 
+const DEFAULT_PRIMARY_NAME: &[u8] = b"ISOIMAGE                        ";
 fn generate_volume_descriptors(opt: &option::Opt) -> Vec<VolumeDescriptor> {
     let mut res: Vec<VolumeDescriptor> = Vec::new();
 
-    res.push(VolumeDescriptor::Primary);
+    res.push(VolumeDescriptor::Primary(
+        opt.primary_volume_name
+            .clone()
+            .map_or(DEFAULT_PRIMARY_NAME.into(), |x| x.into_bytes().into()),
+    ));
     if opt.eltorito_opt.eltorito_boot.is_some() {
         res.push(VolumeDescriptor::Boot);
     }
@@ -396,14 +401,8 @@ pub fn create_iso(opt: &option::Opt) -> std::io::Result<Vec<u8>> {
     out.write_all(b"MKI ")?;
     out.write_all(&empty_mki_section)?;
 
-    tree.write_path_table::<_, LittleEndian>(
-        &mut out,
-        path_table_start_lba,
-    )?;
-    tree.write_path_table::<_, BigEndian>(
-        &mut out,
-        path_table_start_lba + 1,
-    )?;
+    tree.write_path_table::<_, LittleEndian>(&mut out, path_table_start_lba)?;
+    tree.write_path_table::<_, BigEndian>(&mut out, path_table_start_lba + 1)?;
     tree.write_extent(&mut out, None)?;
     tree.write_files(&mut out)?;
 

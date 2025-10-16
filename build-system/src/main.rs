@@ -7,6 +7,9 @@ use std::{
 
 use clap::Parser;
 
+const GAME_DIR: &str = "dbgame-test";
+const ISO_LABEL: &str = "DBGAME-TEST";
+
 #[cfg(unix)]
 const DREAMBOX_NAME: &str = "DreamboxVM";
 #[cfg(windows)]
@@ -34,7 +37,7 @@ fn build(opt: BuildOpt) -> Result<PathBuf, ()> {
     let profile = if opt.release { "release" } else { "dev" };
     let mut command = Command::new("cargo");
     let mut child = command
-        .current_dir("dbgame-test")
+        .current_dir(GAME_DIR)
         .args(["build", "--message-format=json-render-diagnostics"])
         .args(["--profile", profile])
         .stdout(Stdio::piped())
@@ -77,6 +80,7 @@ fn build(opt: BuildOpt) -> Result<PathBuf, ()> {
         grub2_mbr: None,
         boot_load_size: 0,
         protective_msdos_label: false,
+        primary_volume_name: Some(ISO_LABEL.to_string()),
         input_files: vec![main_wasm.into_std_path_buf()],
     })
     .unwrap();

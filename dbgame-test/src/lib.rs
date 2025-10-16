@@ -1,11 +1,13 @@
-use std::sync::{LazyLock, Mutex};
+use std::{
+    f32::consts::FRAC_PI_2,
+    sync::{LazyLock, Mutex},
+};
 
 use byteorder::{LE, ReadBytesExt};
 use image::ImageFormat;
 use sdk::{
     db::{log, register_panic},
     gamepad::{Gamepad, GamepadSlot},
-    logfmt,
     math::{Matrix4x4, Quaternion, Vector3},
     vdp::{
         self, BlendEquation, Color32, Texture, TextureFormat, TextureUnit,
@@ -102,58 +104,59 @@ static PRG_PROJ: &[u32] = &sdk::vu_asm::vu_asm!(
     st ocol r2
     st tex r3
 );
-static PRG_STAT: &[u32] = &sdk::vu_asm::vu_asm!(
-    ld r0 0     // slot 0 = position
-    ld r1 1     // slot 1 = color
-    ld r2 2     // slot 2 = ocolor
-    ld r3 3     // slot 3 = texcoord
-
-    st pos r0
-    st col r1
-    st ocol r2
-    st tex r3
-);
-static STATE: Mutex<State> = Mutex::new(State::new());
 
 struct State {
-    rot: f32,
+    rot_x: f32,
+    rot_y: f32,
 }
 
 impl State {
     const fn new() -> Self {
-        Self { rot: 0.0 }
+        Self {
+            rot_x: 0.0,
+            rot_y: 0.0,
+        }
     }
 }
 
 fn vsync_handler() {
+    static STATE: Mutex<State> = Mutex::new(State::new());
     let mut state = STATE.lock().unwrap();
     let input = Gamepad::new(GamepadSlot::SlotA).read_state();
     let rx = input.right_stick_x as f32 / i16::MAX as f32;
-    state.rot += rx * 0.1;
+    let ry = input.right_stick_y as f32 / i16::MAX as f32;
+    state.rot_x += rx * 0.06;
+    state.rot_y = (state.rot_y - ry * 0.06).clamp(0.01, FRAC_PI_2);
     draw(&state);
 }
 
 fn draw(state: &State) {
     vdp::clear_color(BG);
     vdp::clear_depth(1.0);
+    vdp::set_culling(true);
     vdp::blend_equation(BlendEquation::Add);
     vdp::blend_func(vdp::BlendFactor::One, vdp::BlendFactor::Zero);
     vdp::depth_write(true);
     vdp::depth_func(vdp::Compare::LessOrEqual);
 
     vdp::set_vu_stride(size_of::<f32>() * 4 * 4);
-    let projection =
-        Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 1.0, 0.0, 1.0)
-            * Matrix4x4::scale(Vector3::new(0.2, 0.2, 0.2)).transposed()
-            * Matrix4x4::translation(Vector3::new(0.0, -1.0, 0.0)).transposed()
-            * Matrix4x4::rotation(Quaternion::from_euler(Vector3::new(
-                0.0, state.rot, 0.0,
-            )))
-            .transposed();
-    vdp::set_vu_cdata(0, &projection.get_row(0));
-    vdp::set_vu_cdata(1, &projection.get_row(1));
-    vdp::set_vu_cdata(2, &projection.get_row(2));
-    vdp::set_vu_cdata(3, &projection.get_row(3));
+    let projection = Matrix4x4::translation(Vector3::new(0.0, -1.0, 0.0))
+        * Matrix4x4::rotation(Quaternion::from_euler(Vector3::new(
+            0.0,
+            state.rot_x,
+            0.0,
+        )))
+        * Matrix4x4::rotation(Quaternion::from_euler(Vector3::new(
+            state.rot_y,
+            0.0,
+            0.0,
+        )))
+        * Matrix4x4::scale(Vector3::new(0.2, 0.2, 0.2))
+        * Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 1.0, 0.0, 1.0);
+    vdp::set_vu_cdata(0, &projection.get_column(0));
+    vdp::set_vu_cdata(1, &projection.get_column(1));
+    vdp::set_vu_cdata(2, &projection.get_column(2));
+    vdp::set_vu_cdata(3, &projection.get_column(3));
     vdp::set_vu_layout(0, 0, VertexSlotFormat::FLOAT4);
     vdp::set_vu_layout(1, 16, VertexSlotFormat::FLOAT4);
     vdp::set_vu_layout(2, 32, VertexSlotFormat::FLOAT4);
@@ -164,20 +167,55 @@ fn draw(state: &State) {
     vdp::bind_texture_slot(TextureUnit::TU0, Some(&texture));
     vdp::upload_vu_program(PRG_PROJ);
     vdp::submit_vu::<f32>(Topology::TriangleList, &MODEL_DATA);
-    // vdp::upload_vu_program(PRG_STAT);
+    vdp::submit_vu::<f32>(
+        Topology::TriangleList,
+        [
+            [-10.0, 0.0, -10.0, 1.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 4],
+            [-10.0, 0.0, 10.0, 1.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 4],
+            [10.0, 0.0, 10.0, 1.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 4],
+            [-10.0, 0.0, -10.0, 1.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 4],
+            [10.0, 0.0, 10.0, 1.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 4],
+            [10.0, 0.0, -10.0, 1.0],
+            [0.0; 4],
+            [0.0; 4],
+            [0.0; 4],
+        ]
+        .as_flattened(),
+    );
+    let projection =
+        Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 1.0, 0.0, 1.0);
+    vdp::set_vu_cdata(0, &projection.get_column(0));
+    vdp::set_vu_cdata(1, &projection.get_column(1));
+    vdp::set_vu_cdata(2, &projection.get_column(2));
+    vdp::set_vu_cdata(3, &projection.get_column(3));
     // vdp::submit_vu::<f32>(
     //     Topology::TriangleList,
     //     [
-    //         [0.0, 0.0, 0.0, 1.0],
+    //         [-1.0, 1.0, 0.0, 1.0],
+    //         [1.0, 0.0, 0.0, 1.0],
     //         [0.0; 4],
     //         [0.0; 4],
-    //         [0.0; 4],
+    //         [-1.0, -1.0, 0.0, 1.0],
     //         [0.0, 1.0, 0.0, 1.0],
     //         [0.0; 4],
     //         [0.0; 4],
-    //         [0.0; 4],
     //         [1.0, 1.0, 0.0, 1.0],
-    //         [0.0; 4],
+    //         [0.0, 0.0, 1.0, 1.0],
     //         [0.0; 4],
     //         [0.0; 4],
     //     ]
