@@ -3,13 +3,14 @@ target = "wasm32-unknown-unknown"
 
 [target.wasm32-unknown-unknown]
 rustflags = [
+    "-C", "target-feature=+bulk-memory,+simd128",
     "-C", "link-arg=--max-memory=16777216",
     "-C", "link-arg=--export-table",
 ]
 
 [target.wasm32v1-none]
 rustflags = [
-    "-C", "target-feature=+simd128",
+    "-C", "target-feature=+bulk-memory,+simd128",
     "-C", "link-arg=--max-memory=16777216",
     "-C", "link-arg=--export-table",
 ]
