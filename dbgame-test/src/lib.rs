@@ -129,14 +129,17 @@ impl State {
 fn vsync_handler() {
     static STATE: Mutex<State> = Mutex::new(State::new());
     let mut state = STATE.lock().unwrap();
+
     let input = Gamepad::new(GamepadSlot::SlotA).read_state();
     let lx = input.left_stick_x as f32 / i16::MAX as f32;
     let _ly = input.left_stick_y as f32 / i16::MAX as f32;
     let rx = input.right_stick_x as f32 / i16::MAX as f32;
+
     let ry = input.right_stick_y as f32 / i16::MAX as f32;
     state.rot_x += rx * 0.06;
     state.rot_y = (state.rot_y - ry * 0.06).clamp(-0.01, FRAC_PI_2);
     state.rainbow = (state.rainbow + lx * 0.03).clamp(0.0, 1.0);
+
     draw(&state);
 }
 
@@ -150,6 +153,11 @@ fn draw(state: &State) {
     vdp::depth_func(vdp::Compare::LessOrEqual);
 
     vdp::set_vu_stride(size_of::<f32>() * 4 * 4);
+    vdp::set_vu_layout(0, 0, VertexSlotFormat::FLOAT4);
+    vdp::set_vu_layout(1, 16, VertexSlotFormat::FLOAT4);
+    vdp::set_vu_layout(2, 32, VertexSlotFormat::FLOAT4);
+    vdp::set_vu_layout(3, 48, VertexSlotFormat::FLOAT4);
+
     let projection =
         Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 1.0, 0.0, 1.0);
     let mat = Matrix4x4::translation(Vector3::new(0.0, -1.0, 0.0))
@@ -166,10 +174,6 @@ fn draw(state: &State) {
         * Matrix4x4::scale(Vector3::new(0.2, 0.2, 0.2))
         * projection;
     set_vu_cdata_matrix4x4(0, mat);
-    vdp::set_vu_layout(0, 0, VertexSlotFormat::FLOAT4);
-    vdp::set_vu_layout(1, 16, VertexSlotFormat::FLOAT4);
-    vdp::set_vu_layout(2, 32, VertexSlotFormat::FLOAT4);
-    vdp::set_vu_layout(3, 48, VertexSlotFormat::FLOAT4);
     vdp::upload_vu_program(PRG_PROJ);
 
     let texture =
