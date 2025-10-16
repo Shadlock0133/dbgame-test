@@ -10,12 +10,12 @@ use sdk::{
     gamepad::{Gamepad, GamepadSlot},
     math::{Matrix4x4, Quaternion, Vector3},
     vdp::{
-        self, BlendEquation, Color32, Texture, TextureFormat, TextureUnit,
-        Topology, VertexSlotFormat,
+        self, BlendEquation, BlendFactor, Color32, Texture, TextureFormat,
+        TextureUnit, Topology, VertexSlotFormat,
     },
 };
 
-const BG: Color32 = Color32::new(128, 128, 255, 255);
+const BG: Color32 = Color32::new(20, 30, 42, 255);
 const _BLACK: Color32 = Color32::new(0, 0, 0, 0);
 
 #[unsafe(no_mangle)]
@@ -39,7 +39,6 @@ static TEXTURE_DATA: LazyLock<Vec<u8>> = LazyLock::new(|| {
 });
 
 fn decode_data(mut model: &[u8]) -> Vec<f32> {
-    log(c"decoding");
     let verts_count = model.read_u32::<LE>().unwrap();
     let vert_texs_count = model.read_u32::<LE>().unwrap();
     let faces_count = model.read_u32::<LE>().unwrap();
@@ -86,6 +85,12 @@ fn decode_data(mut model: &[u8]) -> Vec<f32> {
         .collect()
 }
 
+fn set_vu_cdata_matrix4x4(offset: usize, matrix: Matrix4x4) {
+    for i in 0..4 {
+        vdp::set_vu_cdata(offset + i, &matrix.get_column(i));
+    }
+}
+
 static PRG_PROJ: &[u32] = &sdk::vu_asm::vu_asm!(
     ld r0 0     // slot 0 = position
     ld r1 1     // slot 1 = color
@@ -108,6 +113,7 @@ static PRG_PROJ: &[u32] = &sdk::vu_asm::vu_asm!(
 struct State {
     rot_x: f32,
     rot_y: f32,
+    rainbow: f32,
 }
 
 impl State {
@@ -115,6 +121,7 @@ impl State {
         Self {
             rot_x: 0.0,
             rot_y: 0.0,
+            rainbow: 0.0,
         }
     }
 }
@@ -123,10 +130,13 @@ fn vsync_handler() {
     static STATE: Mutex<State> = Mutex::new(State::new());
     let mut state = STATE.lock().unwrap();
     let input = Gamepad::new(GamepadSlot::SlotA).read_state();
+    let lx = input.left_stick_x as f32 / i16::MAX as f32;
+    let _ly = input.left_stick_y as f32 / i16::MAX as f32;
     let rx = input.right_stick_x as f32 / i16::MAX as f32;
     let ry = input.right_stick_y as f32 / i16::MAX as f32;
     state.rot_x += rx * 0.06;
-    state.rot_y = (state.rot_y - ry * 0.06).clamp(0.01, FRAC_PI_2);
+    state.rot_y = (state.rot_y - ry * 0.06).clamp(-0.01, FRAC_PI_2);
+    state.rainbow = (state.rainbow + lx * 0.03).clamp(0.0, 1.0);
     draw(&state);
 }
 
@@ -135,12 +145,14 @@ fn draw(state: &State) {
     vdp::clear_depth(1.0);
     vdp::set_culling(true);
     vdp::blend_equation(BlendEquation::Add);
-    vdp::blend_func(vdp::BlendFactor::One, vdp::BlendFactor::Zero);
+    vdp::blend_func(BlendFactor::One, BlendFactor::Zero);
     vdp::depth_write(true);
     vdp::depth_func(vdp::Compare::LessOrEqual);
 
     vdp::set_vu_stride(size_of::<f32>() * 4 * 4);
-    let projection = Matrix4x4::translation(Vector3::new(0.0, -1.0, 0.0))
+    let projection =
+        Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 1.0, 0.0, 1.0);
+    let mat = Matrix4x4::translation(Vector3::new(0.0, -1.0, 0.0))
         * Matrix4x4::rotation(Quaternion::from_euler(Vector3::new(
             0.0,
             state.rot_x,
@@ -152,73 +164,86 @@ fn draw(state: &State) {
             0.0,
         )))
         * Matrix4x4::scale(Vector3::new(0.2, 0.2, 0.2))
-        * Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 1.0, 0.0, 1.0);
-    vdp::set_vu_cdata(0, &projection.get_column(0));
-    vdp::set_vu_cdata(1, &projection.get_column(1));
-    vdp::set_vu_cdata(2, &projection.get_column(2));
-    vdp::set_vu_cdata(3, &projection.get_column(3));
+        * projection;
+    set_vu_cdata_matrix4x4(0, mat);
     vdp::set_vu_layout(0, 0, VertexSlotFormat::FLOAT4);
     vdp::set_vu_layout(1, 16, VertexSlotFormat::FLOAT4);
     vdp::set_vu_layout(2, 32, VertexSlotFormat::FLOAT4);
     vdp::set_vu_layout(3, 48, VertexSlotFormat::FLOAT4);
+    vdp::upload_vu_program(PRG_PROJ);
+
     let texture =
         Texture::new(256, 256, false, TextureFormat::RGBA8888).unwrap();
     texture.set_texture_data(0, &TEXTURE_DATA);
     vdp::bind_texture_slot(TextureUnit::TU0, Some(&texture));
-    vdp::upload_vu_program(PRG_PROJ);
     vdp::submit_vu::<f32>(Topology::TriangleList, &MODEL_DATA);
+    vdp::bind_texture_slot(TextureUnit::TU0, None::<&Texture>);
+
+    // floor
+    let floor_color = [1.0, 1.0, 1.0, 1.0];
     vdp::submit_vu::<f32>(
         Topology::TriangleList,
         [
             [-10.0, 0.0, -10.0, 1.0],
-            [0.0; 4],
+            floor_color,
             [0.0; 4],
             [0.0; 4],
             [-10.0, 0.0, 10.0, 1.0],
-            [0.0; 4],
+            floor_color,
             [0.0; 4],
             [0.0; 4],
             [10.0, 0.0, 10.0, 1.0],
-            [0.0; 4],
+            floor_color,
             [0.0; 4],
             [0.0; 4],
             [-10.0, 0.0, -10.0, 1.0],
-            [0.0; 4],
+            floor_color,
             [0.0; 4],
             [0.0; 4],
             [10.0, 0.0, 10.0, 1.0],
-            [0.0; 4],
+            floor_color,
             [0.0; 4],
             [0.0; 4],
             [10.0, 0.0, -10.0, 1.0],
-            [0.0; 4],
+            floor_color,
             [0.0; 4],
             [0.0; 4],
         ]
         .as_flattened(),
     );
-    let projection =
-        Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 1.0, 0.0, 1.0);
-    vdp::set_vu_cdata(0, &projection.get_column(0));
-    vdp::set_vu_cdata(1, &projection.get_column(1));
-    vdp::set_vu_cdata(2, &projection.get_column(2));
-    vdp::set_vu_cdata(3, &projection.get_column(3));
-    // vdp::submit_vu::<f32>(
-    //     Topology::TriangleList,
-    //     [
-    //         [-1.0, 1.0, 0.0, 1.0],
-    //         [1.0, 0.0, 0.0, 1.0],
-    //         [0.0; 4],
-    //         [0.0; 4],
-    //         [-1.0, -1.0, 0.0, 1.0],
-    //         [0.0, 1.0, 0.0, 1.0],
-    //         [0.0; 4],
-    //         [0.0; 4],
-    //         [1.0, 1.0, 0.0, 1.0],
-    //         [0.0, 0.0, 1.0, 1.0],
-    //         [0.0; 4],
-    //         [0.0; 4],
-    //     ]
-    //     .as_flattened(),
-    // );
+
+    set_vu_cdata_matrix4x4(0, Matrix4x4::identity());
+    vdp::blend_equation(BlendEquation::Add);
+    vdp::blend_func(BlendFactor::SrcAlpha, BlendFactor::DstAlpha);
+    let amount = state.rainbow;
+    vdp::submit_vu::<f32>(
+        Topology::TriangleList,
+        [
+            [-1.0, 1.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0, amount],
+            [0.0; 4],
+            [0.0; 4],
+            [-1.0, -1.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, amount],
+            [0.0; 4],
+            [0.0; 4],
+            [1.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, amount],
+            [0.0; 4],
+            [0.0; 4],
+            [-1.0, -1.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, amount],
+            [0.0; 4],
+            [0.0; 4],
+            [1.0, -1.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0, amount],
+            [0.0; 4],
+            [0.0; 4],
+            [1.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, amount],
+            [0.0; 4],
+            [0.0; 4],
+        ]
+        .as_flattened(),
+    );
 }
