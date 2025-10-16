@@ -1,19 +1,17 @@
 use std::{
     cell::RefCell,
-    convert::TryInto,
     io::{Read, Seek},
-    mem::{size_of, transmute},
-    sync::Arc,
-    sync::{RwLock, Weak},
+    mem::size_of,
+    sync::{Arc, RwLock, Weak},
 };
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::{
     audio::{
-        AudioSample, AudioVoiceParam, VOICE_COUNT, get_time, get_voice_state,
-        queue_set_voice_param_f, queue_set_voice_param_i, queue_start_voice,
-        queue_stop_voice,
+        AudioError, AudioSample, AudioVoiceParam, VOICE_COUNT, get_time,
+        get_voice_state, queue_set_voice_param_f, queue_set_voice_param_i,
+        queue_start_voice, queue_stop_voice,
     },
     io::FileStream,
     math::{Quaternion, Vector3},
@@ -84,8 +82,8 @@ struct WavHeaderFormat {
     length_of_fmt: u32,
     format_type: u16,
     channels: u16,
-    samplerate: u32,
-    _byterate: u32,
+    sample_rate: u32,
+    _byte_rate: u32,
     block_align: u16,
     bits_per_sample: u16,
 }
@@ -104,10 +102,10 @@ impl WavHeaderFormat {
         let channels = fs
             .read_u16::<LittleEndian>()
             .expect("Failed reading header");
-        let samplerate = fs
+        let sample_rate = fs
             .read_u32::<LittleEndian>()
             .expect("Failed reading header");
-        let byterate = fs
+        let byte_rate = fs
             .read_u32::<LittleEndian>()
             .expect("Failed reading header");
         let block_align = fs
@@ -122,8 +120,8 @@ impl WavHeaderFormat {
             length_of_fmt,
             format_type,
             channels,
-            samplerate,
-            _byterate: byterate,
+            sample_rate,
+            _byte_rate: byte_rate,
             block_align,
             bits_per_sample,
         }
@@ -143,10 +141,7 @@ impl WavChunkHeader {
             .read_u32::<LittleEndian>()
             .expect("Failed reading header");
 
-        WavChunkHeader {
-            id,
-            chunk_size,
-        }
+        WavChunkHeader { id, chunk_size }
     }
 }
 
@@ -228,15 +223,12 @@ impl SoundDriver {
 
         *search_offset = (*search_offset + 1) % max_voice;
 
-        match ret {
-            Some(r) => {
-                let rv = &mut voices[r];
-                rv.priority = priority;
-            }
-            None => {}
+        if let Some(r) = ret {
+            let rv = &mut voices[r];
+            rv.priority = priority;
         }
 
-        return ret;
+        ret
     }
 
     fn assign_hw_voice(
@@ -307,7 +299,7 @@ impl SoundDriver {
 
         let pan = local_pos.x;
 
-        return (gain, pan);
+        (gain, pan)
     }
 
     fn update_voice(
@@ -439,9 +431,7 @@ impl SoundDriver {
             {
                 let mut emref = emitter_rc.write().unwrap();
                 // for non-looping sounds: if the voice stops playing, or the sound's voice has been stolen, just stop emitter and remove from list
-                if !emref.looping
-                    && (!voice.is_some()
-                        || !get_voice_state(voice.unwrap().try_into().unwrap()))
+                if !emref.looping && (voice.is_none_or(|v| !get_voice_state(v)))
                 {
                     emref.is_valid = false;
                 }
@@ -471,18 +461,18 @@ impl SoundDriver {
     ) -> Weak<RwLock<SoundEmitter>> {
         let mut emitter = SoundEmitter {
             is_valid: true,
-            priority: priority,
-            looping: looping,
-            reverb: reverb,
+            priority,
+            looping,
+            reverb,
             is_3d: false,
             atten_type: AttenuationType::None,
             atten_min_dist: 0.0,
             atten_max_dist: 0.0,
             atten_rolloff: 0.0,
             position: Vector3::zero(),
-            volume: volume,
-            pitch: pitch,
-            pan: pan,
+            volume,
+            pitch,
+            pan,
             sample: sample.clone(),
             id: 0,
             voice: None,
@@ -500,7 +490,7 @@ impl SoundDriver {
         let wr = Arc::downgrade(&rc);
         self.emitters.push(rc);
 
-        return wr;
+        wr
     }
 
     /// Start playing a 3D sound effect and return a handle to it
@@ -520,17 +510,17 @@ impl SoundDriver {
     ) -> Weak<RwLock<SoundEmitter>> {
         let mut emitter = SoundEmitter {
             is_valid: true,
-            priority: priority,
-            looping: looping,
-            reverb: reverb,
+            priority,
+            looping,
+            reverb,
             is_3d: true,
-            atten_type: atten_type,
-            atten_min_dist: atten_min_dist,
-            atten_max_dist: atten_max_dist,
-            atten_rolloff: atten_rolloff,
-            position: position,
-            volume: volume,
-            pitch: pitch,
+            atten_type,
+            atten_min_dist,
+            atten_max_dist,
+            atten_rolloff,
+            position,
+            volume,
+            pitch,
             pan: 0.0,
             sample: sample.clone(),
             id: 0,
@@ -549,30 +539,27 @@ impl SoundDriver {
         let wr = Arc::downgrade(&rc);
         self.emitters.push(rc);
 
-        return wr;
+        wr
     }
 
     /// Stop the playing emitter
     pub fn stop(&mut self, emitter_ref: Weak<RefCell<SoundEmitter>>) {
-        let rc = emitter_ref.upgrade();
-        if !rc.is_some() {
+        let Some(em) = emitter_ref.upgrade() else {
             return;
-        }
+        };
 
-        let em = rc.unwrap();
         let mut emitter = em.borrow_mut();
 
         if !emitter.is_valid {
             return;
         }
 
-        if emitter.voice.is_some() {
-            let voiceid =
-                TryInto::<usize>::try_into(emitter.voice.unwrap()).unwrap();
-            let voice: &mut SoundVoice = &mut self.voices[voiceid];
+        if let Some(voice) = emitter.voice {
+            let voiceid: usize = voice.try_into().unwrap();
+            let voice = &mut self.voices[voiceid];
             if voice.id == emitter.id {
                 voice.priority = 255;
-                queue_stop_voice(voice.slot.try_into().unwrap(), 0.0);
+                queue_stop_voice(voice.slot, 0.0);
             }
         }
 
@@ -581,62 +568,33 @@ impl SoundDriver {
 }
 
 /// Load a wav file, returning an audio sample handle (supported encodings are unsigned 8-bit, signed 16-bit, and IMA ADPCM)
-pub fn load_wav(file: &mut FileStream) -> Result<AudioSample, ()> {
+pub fn load_wav(file: &mut FileStream) -> Result<AudioSample, AudioError> {
     let header = WavHeader::read(file);
 
-    // check riff string
-    let riff = match std::str::from_utf8(&header.riff) {
-        Ok(v) => v,
-        Err(_) => {
-            return Err(());
-        }
-    };
-
-    if riff != "RIFF" {
-        return Err(());
+    if &header.riff != b"RIFF" {
+        return Err(AudioError);
     }
 
-    // check wav string
-    let wave = match std::str::from_utf8(&header.wave) {
-        Ok(v) => v,
-        Err(_) => {
-            return Err(());
-        }
-    };
-
-    if wave != "WAVE" {
-        return Err(());
+    if &header.wave != b"WAVE" {
+        return Err(AudioError);
     }
 
     let fmt_header = WavHeaderFormat::read(file);
 
-    // check fmt string
-
-    let fmt_str = match std::str::from_utf8(&fmt_header.fmt_chunk_marker) {
-        Ok(v) => v,
-        Err(_) => {
-            return Err(());
-        }
-    };
-
-    if fmt_str != "fmt " {
-        return Err(());
+    if &fmt_header.fmt_chunk_marker != b"fmt " {
+        return Err(AudioError);
     }
 
     if fmt_header.channels != 1 {
-        return Err(());
+        return Err(AudioError);
     }
 
     // skip over header data
     let fmt_header_size: usize = fmt_header.length_of_fmt.try_into().unwrap();
-    let header_size: usize = size_of::<WavHeader>() + fmt_header_size + 8;
+    let header_size = size_of::<WavHeader>() + fmt_header_size + 8;
 
-    match file.seek(std::io::SeekFrom::Start(header_size.try_into().unwrap())) {
-        Ok(_) => {}
-        Err(_) => {
-            return Err(());
-        }
-    }
+    file.seek(std::io::SeekFrom::Start(header_size.try_into().unwrap()))
+        .map_err(|_| AudioError)?;
 
     let mut data_found = false;
     let mut chunk_header: WavChunkHeader = WavChunkHeader {
@@ -647,96 +605,65 @@ pub fn load_wav(file: &mut FileStream) -> Result<AudioSample, ()> {
     while !file.end_of_file() {
         chunk_header = WavChunkHeader::read(file);
 
-        let chunk_id = match std::str::from_utf8(&chunk_header.id) {
-            Ok(v) => v,
-            Err(_) => {
-                return Err(());
-            }
-        };
-
-        if chunk_id == "data" {
+        if &chunk_header.id == b"data" {
             data_found = true;
             break;
         } else {
             // skip chunk data
-            if file
-                .seek(std::io::SeekFrom::Current(
-                    chunk_header.chunk_size.try_into().unwrap(),
-                ))
-                .is_err()
-            {
-                return Err(());
-            }
+            file.seek(std::io::SeekFrom::Current(
+                chunk_header.chunk_size.into(),
+            ))
+            .map_err(|_| AudioError)?;
         }
     }
 
     if !data_found {
-        return Err(());
+        return Err(AudioError);
     }
 
     if fmt_header.format_type == 1 && fmt_header.bits_per_sample == 8 {
         // unsigned 8-bit PCM
         let mut pcm8: Vec<u8> =
             vec![0; chunk_header.chunk_size.try_into().unwrap()];
-        match file.read(pcm8.as_mut_slice()) {
-            Ok(_) => {}
-            Err(_) => {
-                return Err(());
-            }
-        };
+        file.read_exact(&mut pcm8).map_err(|_| AudioError)?;
 
         // convert from unsigned 0 .. 255 to signed -128 .. 127
         for s in &mut pcm8 {
             *s = s.wrapping_sub(128);
         }
 
-        let sample_handle = unsafe {
-            AudioSample::create_s8(
-                transmute(pcm8.as_slice()),
-                fmt_header.samplerate.try_into().unwrap(),
-            )?
-        };
+        let sample_handle = AudioSample::create_s8(
+            bytemuck::cast_slice(&pcm8),
+            fmt_header.sample_rate.try_into().unwrap(),
+        )?;
 
         return Ok(sample_handle);
     } else if fmt_header.format_type == 1 && fmt_header.bits_per_sample == 16 {
         // signed 16-bit PCM
         let mut pcm16: Vec<u8> =
             vec![0, chunk_header.chunk_size.try_into().unwrap()];
-        match file.read(pcm16.as_mut_slice()) {
-            Ok(_) => {}
-            Err(_) => {
-                return Err(());
-            }
-        };
+        file.read_exact(&mut pcm16).map_err(|_| AudioError)?;
 
-        let sample_handle = unsafe {
-            AudioSample::create_s16(
-                // TODO: wrong
-                transmute(pcm16.as_slice()),
-                fmt_header.samplerate.try_into().unwrap(),
-            )?
-        };
+        let sample_handle = AudioSample::create_s16(
+            bytemuck::cast_slice(&pcm16),
+            fmt_header.sample_rate.try_into().unwrap(),
+        )?;
 
         return Ok(sample_handle);
     } else if fmt_header.format_type == 0x11 {
         // IMA ADPCM
         let mut adpcm: Vec<u8> =
             vec![0, chunk_header.chunk_size.try_into().unwrap()];
-        match file.read(adpcm.as_mut_slice()) {
-            Ok(_) => {}
-            Err(_) => {
-                return Err(());
-            }
-        }
+        file.read_exact(&mut adpcm).map_err(|_| AudioError)?;
 
         let sample_handle = AudioSample::create_adpcm(
-            adpcm.as_slice(),
+            &adpcm,
             fmt_header.block_align.into(),
-            fmt_header.samplerate.try_into().unwrap(),
+            fmt_header.sample_rate.try_into().unwrap(),
         )?;
 
         return Ok(sample_handle);
     }
 
-    Err(())
+    Err(AudioError)
 }

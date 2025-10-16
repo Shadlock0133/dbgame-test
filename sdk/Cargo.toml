@@ -8,7 +8,9 @@ license = "MIT"
 [dependencies]
 libm = "0.2.15"
 bitflags = "2.9.4"
+byteorder = "1.5.0"
 dbsdk-vu-asm = "0.1.0"
+bytemuck = "1.24.0"
 
 [features]
 default = ["std"]

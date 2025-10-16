@@ -1,17 +1,15 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+mod alloc;
 pub mod audio;
 pub mod clock;
 pub mod db;
 mod db_internal;
 pub mod gamepad;
-pub mod math;
-pub mod vdp;
-mod alloc;
-
-//requires some redesign
 pub mod io;
-// pub mod sounddriver;
+pub mod math;
+pub mod sound_driver;
+pub mod vdp;
 
 pub use dbsdk_vu_asm as vu_asm;
 
