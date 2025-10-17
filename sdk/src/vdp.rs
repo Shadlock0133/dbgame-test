@@ -129,7 +129,7 @@ impl Texture {
                 level,
                 data.as_ptr().cast(),
                 len_bytes.try_into().unwrap(),
-            );
+            )
         }
     }
 
@@ -149,7 +149,7 @@ impl Texture {
                 u_data.len().try_into().unwrap(),
                 v_data.as_ptr().cast(),
                 v_data.len().try_into().unwrap(),
-            );
+            )
         }
     }
 
@@ -170,16 +170,14 @@ impl Texture {
                         &v,
                         data.as_ptr().cast(),
                         len_bytes.try_into().unwrap(),
-                    );
+                    )
                 }
-                None => {
-                    vdp_setTextureData(
-                        self.handle,
-                        level,
-                        data.as_ptr().cast(),
-                        data.len().try_into().unwrap(),
-                    );
-                }
+                None => vdp_setTextureData(
+                    self.handle,
+                    level,
+                    data.as_ptr().cast(),
+                    data.len().try_into().unwrap(),
+                ),
             }
         }
     }
@@ -190,15 +188,13 @@ impl Texture {
         src_rect: Rectangle,
         dst_rect: Rectangle,
     ) {
-        unsafe {
-            vdp_copyFbToTexture(&src_rect, &dst_rect, target.handle);
-        }
+        unsafe { vdp_copyFbToTexture(&src_rect, &dst_rect, target.handle) }
     }
 }
 
 impl Drop for Texture {
     fn drop(&mut self) {
-        unsafe { vdp_releaseTexture(self.handle) };
+        unsafe { vdp_releaseTexture(self.handle) }
     }
 }
 
@@ -206,16 +202,16 @@ impl RenderTexture {
     pub fn new(width: i32, height: i32) -> Result<RenderTexture, TextureError> {
         // dimensions must be power of two
         if (width & (width - 1)) != 0 || (height & (height - 1)) != 0 {
-            return Result::Err(TextureError::DimensionsInvalid);
+            return Err(TextureError::DimensionsInvalid);
         }
 
         // allocate and check to see if allocation failed
         let handle = unsafe { vdp_allocRenderTexture(width, height) };
         if handle == -1 {
-            return Result::Err(TextureError::AllocationFailed);
+            return Err(TextureError::AllocationFailed);
         }
 
-        Result::Ok(RenderTexture {
+        Ok(RenderTexture {
             width,
             height,
             handle,
@@ -225,7 +221,7 @@ impl RenderTexture {
 
 impl Drop for RenderTexture {
     fn drop(&mut self) {
-        unsafe { vdp_releaseTexture(self.handle) };
+        unsafe { vdp_releaseTexture(self.handle) }
     }
 }
 
@@ -338,52 +334,48 @@ pub enum TextureUnit {
 
 unsafe extern "C" fn real_vsync_handler() {
     if let Some(handler) = unsafe { *VSYNC_HANDLER.get() } {
-        handler();
+        handler()
     }
 }
 
 /// Clear the backbuffer to the given color
 pub fn clear_color(color: Color32) {
-    unsafe {
-        vdp_clearColor(&color);
-    }
+    unsafe { vdp_clearColor(&color) }
 }
 
 /// Clear the depth buffer to the given depth value
 pub fn clear_depth(depth: f32) {
-    unsafe {
-        vdp_clearDepth(depth);
-    }
+    unsafe { vdp_clearDepth(depth) }
 }
 
 /// Set whether depth writes are enabled
 pub fn depth_write(enable: bool) {
-    unsafe { vdp_depthWrite(enable) };
+    unsafe { vdp_depthWrite(enable) }
 }
 
 /// Set the current depth test comparison
 pub fn depth_func(compare: Compare) {
-    unsafe { vdp_depthFunc(compare) };
+    unsafe { vdp_depthFunc(compare) }
 }
 
 /// Set the blend equation mode
 pub fn blend_equation(mode: BlendEquation) {
-    unsafe { vdp_blendEquation(mode) };
+    unsafe { vdp_blendEquation(mode) }
 }
 
 /// Set the source and destination blend factors
 pub fn blend_func(src_factor: BlendFactor, dst_factor: BlendFactor) {
-    unsafe { vdp_blendFunc(src_factor, dst_factor) };
+    unsafe { vdp_blendFunc(src_factor, dst_factor) }
 }
 
 /// Set the winding order for backface culling
 pub fn set_winding(winding: WindingOrder) {
-    unsafe { vdp_setWinding(winding) };
+    unsafe { vdp_setWinding(winding) }
 }
 
 /// Set backface culling enabled or disabled
 pub fn set_culling(enabled: bool) {
-    unsafe { vdp_setCulling(enabled) };
+    unsafe { vdp_setCulling(enabled) }
 }
 
 /// Get total texture memory usage in bytes
@@ -393,9 +385,7 @@ pub fn get_usage() -> i32 {
 
 /// Set the current viewport rect
 pub fn viewport(rect: Rectangle) {
-    unsafe {
-        vdp_viewport(rect.x, rect.y, rect.width, rect.height);
-    }
+    unsafe { vdp_viewport(rect.x, rect.y, rect.width, rect.height) }
 }
 
 /// Compare a region of the depth buffer against the given reference value
@@ -408,7 +398,7 @@ pub fn submit_depth_query(ref_val: f32, compare: Compare, rect: Rectangle) {
             rect.y,
             rect.width,
             rect.height,
-        );
+        )
     }
 }
 
@@ -419,30 +409,24 @@ pub fn get_depth_query_result() -> i32 {
 
 /// Set one of VU's 16 const data slots to given vector
 pub fn set_vu_cdata(offset: usize, data: &Vector4) {
-    unsafe {
-        vdp_setVUCData(offset as i32, (data as *const Vector4).cast());
-    }
+    unsafe { vdp_setVUCData(offset as i32, <*const _>::cast(data)) }
 }
 
 /// Configure input vertex element slot layout
 pub fn set_vu_layout(slot: usize, offset: usize, format: VertexSlotFormat) {
-    unsafe {
-        vdp_setVULayout(slot as i32, offset as i32, format);
-    }
+    unsafe { vdp_setVULayout(slot as i32, offset as i32, format) }
 }
 
 /// Set stride of input vertex data (size of each vertex in bytes)
 pub fn set_vu_stride(stride: usize) {
-    unsafe {
-        vdp_setVUStride(stride as i32);
-    }
+    unsafe { vdp_setVUStride(stride as i32) }
 }
 
 /// Upload a new VU program
 pub fn upload_vu_program(program: &[u32]) {
     unsafe {
         let program_len = core::mem::size_of_val(program);
-        vdp_uploadVUProgram(program.as_ptr().cast(), program_len as i32);
+        vdp_uploadVUProgram(program.as_ptr().cast(), program_len as i32)
     }
 }
 
@@ -450,22 +434,13 @@ pub fn upload_vu_program(program: &[u32]) {
 pub fn submit_vu<T>(topology: Topology, data: &[T]) {
     unsafe {
         let data_len = core::mem::size_of_val(data);
-        vdp_submitVU(topology, data.as_ptr().cast(), data_len as i32);
+        vdp_submitVU(topology, data.as_ptr().cast(), data_len as i32)
     }
 }
 
 /// Set the current render target
 pub fn set_render_target(texture: Option<RenderTexture>) {
-    unsafe {
-        match texture {
-            Some(v) => {
-                vdp_setRenderTarget(v.handle);
-            }
-            None => {
-                vdp_setRenderTarget(-1);
-            }
-        }
-    }
+    unsafe { vdp_setRenderTarget(texture.map_or(-1, |v| v.handle)) }
 }
 
 /// Set texture sample params for the given texture unit
@@ -475,36 +450,23 @@ pub fn set_sample_params_slot(
     wrap_u: TextureWrap,
     wrap_v: TextureWrap,
 ) {
-    unsafe {
-        vdp_setSampleParamsSlot(slot, filter, wrap_u, wrap_v);
-    }
+    unsafe { vdp_setSampleParamsSlot(slot, filter, wrap_u, wrap_v) }
 }
 
 /// Bind a texture to the given texture unit
 pub fn bind_texture_slot<T: DBTex>(slot: TextureUnit, texture: Option<&T>) {
-    unsafe {
-        match texture {
-            Some(v) => {
-                vdp_bindTextureSlot(slot, v.get_handle());
-            }
-            None => {
-                vdp_bindTextureSlot(slot, -1);
-            }
-        }
-    }
+    unsafe { vdp_bindTextureSlot(slot, texture.map_or(-1, |v| v.get_handle())) }
 }
 
 /// Set texture combiner mode
 pub fn set_tex_combine(tex_combine: TexCombine, vtx_combine: TexCombine) {
-    unsafe {
-        vdp_setTexCombine(tex_combine, vtx_combine);
-    }
+    unsafe { vdp_setTexCombine(tex_combine, vtx_combine) }
 }
 
 /// Set an optional handler for vertical sync
 pub fn set_vsync_handler(handler: Option<fn()>) {
     unsafe {
         VSYNC_HANDLER.get().write(handler);
-        vdp_setVsyncHandler(real_vsync_handler);
+        vdp_setVsyncHandler(real_vsync_handler)
     }
 }

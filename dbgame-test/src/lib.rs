@@ -1,18 +1,15 @@
 use std::{
-    f32::consts::FRAC_PI_2,
+    f32::consts::{FRAC_PI_2, TAU},
     sync::{LazyLock, Mutex},
 };
 
 use byteorder::{LE, ReadBytesExt};
-use image::ImageFormat;
+use image::{ImageBuffer, ImageFormat, Rgba};
 use sdk::{
-    db::{log, register_panic},
-    gamepad::{Gamepad, GamepadSlot},
-    math::{Matrix4x4, Quaternion, Vector3},
-    vdp::{
+    db::{log, register_panic}, gamepad::{Gamepad, GamepadButton, GamepadSlot, GamepadState}, logfmt, math::{Matrix4x4, Quaternion, Vector2, Vector3}, vdp::{
         self, BlendEquation, BlendFactor, Color32, Texture, TextureFormat,
         TextureUnit, Topology, VertexSlotFormat,
-    },
+    }
 };
 
 const BG: Color32 = Color32::new(20, 30, 42, 255);
@@ -29,16 +26,32 @@ pub fn main(_: i32, _: i32) -> i32 {
 
 static MODEL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/untitled.3d"));
 static MODEL_DATA: LazyLock<Vec<f32>> = LazyLock::new(|| decode_data(MODEL));
-static TEXTURE: &[u8] = include_bytes!("../../assets/untitled.png");
-static TEXTURE_DATA: LazyLock<Vec<u8>> = LazyLock::new(|| {
-    image::load_from_memory_with_format(TEXTURE, ImageFormat::Png)
-        .unwrap()
-        .flipv()
-        .into_rgba8()
-        .into_raw()
-});
+static MODEL_TEXTURE_PNG: &[u8] = include_bytes!("../../assets/untitled.png");
+static MODEL_TEXTURE: LazyLock<ImageBuffer<Rgba<u8>, Vec<u8>>> =
+    LazyLock::new(|| {
+        image::load_from_memory_with_format(MODEL_TEXTURE_PNG, ImageFormat::Png)
+            .unwrap()
+            .flipv()
+            .into_rgba8()
+    });
+
+static FLOOR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/floor.3d"));
+static FLOOR_DATA: LazyLock<Vec<f32>> = LazyLock::new(|| decode_data(FLOOR));
+static FLOOR_TEXTURE_PNG: &[u8] = include_bytes!("../../assets/floor.png");
+static FLOOR_TEXTURE: LazyLock<ImageBuffer<Rgba<u8>, Vec<u8>>> =
+    LazyLock::new(|| {
+        image::load_from_memory_with_format(FLOOR_TEXTURE_PNG, ImageFormat::Png)
+            .unwrap()
+            .flipv()
+            .into_rgba8()
+    });
 
 fn decode_data(mut model: &[u8]) -> Vec<f32> {
+    let has_vert_colors = match model.read_u8().unwrap() {
+        0 => false,
+        1 => true,
+        _ => unimplemented!(),
+    };
     let verts_count = model.read_u32::<LE>().unwrap();
     let vert_texs_count = model.read_u32::<LE>().unwrap();
     let faces_count = model.read_u32::<LE>().unwrap();
@@ -47,6 +60,12 @@ fn decode_data(mut model: &[u8]) -> Vec<f32> {
             let x = model.read_f32::<LE>().unwrap();
             let y = model.read_f32::<LE>().unwrap();
             let z = model.read_f32::<LE>().unwrap();
+            if has_vert_colors {
+                let _r = model.read_u8().unwrap();
+                let _g = model.read_u8().unwrap();
+                let _b = model.read_u8().unwrap();
+                let _a = model.read_u8().unwrap();
+            }
             [x, y, z]
         })
         .collect();
@@ -59,7 +78,7 @@ fn decode_data(mut model: &[u8]) -> Vec<f32> {
         .collect();
     let faces: Vec<[(u32, u32); 3]> = (0..faces_count)
         .map(|_| {
-            [(); 3].map(|()| {
+            [(); _].map(|()| {
                 let v = model.read_u32::<LE>().unwrap();
                 let vt = model.read_u32::<LE>().unwrap();
                 (v, vt)
@@ -74,7 +93,7 @@ fn decode_data(mut model: &[u8]) -> Vec<f32> {
 
                 out[0][..3].copy_from_slice(&verts[vi as usize]);
                 out[0][3] = 1.0;
-                out[1] = [0.0, 1.0, 1.0, 1.0];
+                out[1] = [1.0; 4];
                 out[3][..2].copy_from_slice(&vert_texs[vti as usize]);
 
                 out
@@ -111,16 +130,20 @@ static PRG_PROJ: &[u32] = &sdk::vu_asm::vu_asm!(
 );
 
 struct State {
-    rot_x: f32,
-    rot_y: f32,
+    camera_pos: Vector3,
+    camera_rot: Vector2,
+    player_pos: Vector3,
+    player_rot: f32,
     rainbow: f32,
 }
 
 impl State {
     const fn new() -> Self {
         Self {
-            rot_x: 0.0,
-            rot_y: 0.0,
+            camera_pos: Vector3::zero(),
+            camera_rot: Vector2::zero(),
+            player_pos: Vector3::zero(),
+            player_rot: 0.0,
             rainbow: 0.0,
         }
     }
@@ -131,16 +154,62 @@ fn vsync_handler() {
     let mut state = STATE.lock().unwrap();
 
     let input = Gamepad::new(GamepadSlot::SlotA).read_state();
-    let lx = input.left_stick_x as f32 / i16::MAX as f32;
-    let _ly = input.left_stick_y as f32 / i16::MAX as f32;
-    let rx = input.right_stick_x as f32 / i16::MAX as f32;
 
-    let ry = input.right_stick_y as f32 / i16::MAX as f32;
-    state.rot_x += rx * 0.06;
-    state.rot_y = (state.rot_y - ry * 0.06).clamp(-0.01, FRAC_PI_2);
-    state.rainbow = (state.rainbow + lx * 0.03).clamp(0.0, 1.0);
-
+    update(&mut state, input);
     draw(&state);
+}
+
+fn check_input_axis(
+    input: GamepadState,
+    button1: GamepadButton,
+    button2: GamepadButton,
+) -> f32 {
+    match (
+        input.button_mask.contains(button1),
+        input.button_mask.contains(button2),
+    ) {
+        (true, false) => 1.0,
+        (false, true) => -1.0,
+        _ => 0.0,
+    }
+}
+
+fn i16_to_f32(value: i16) -> f32 {
+    (value as f32 / i16::MAX as f32).clamp(-1.0, 1.0)
+}
+
+fn update(state: &mut State, input: GamepadState) {
+    let lx = i16_to_f32(input.left_stick_x);
+    let ly = i16_to_f32(input.left_stick_y);
+    let rx = i16_to_f32(input.right_stick_x);
+    let ry = i16_to_f32(input.right_stick_y);
+
+    let height_delta =
+        check_input_axis(input, GamepadButton::L1, GamepadButton::R1);
+    let player_rot_delta =
+        check_input_axis(input, GamepadButton::L2, GamepadButton::R2);
+
+    state.player_rot =
+        (state.player_rot + player_rot_delta * 0.03).rem_euclid(TAU);
+
+    let player_dir =
+        Vector2::new(state.player_rot.sin(), state.player_rot.cos());
+    let player_dir_side =
+        Vector2::new(state.player_rot.cos(), -state.player_rot.sin());
+
+    state.player_pos.z += (ly * -0.06 * player_dir).y;
+    state.player_pos.y += height_delta * 0.06;
+    state.player_pos.x += (lx * 0.06 * player_dir_side).x;
+
+    state.camera_pos = state.player_pos;
+
+    state.camera_rot.x += rx * 0.03;
+    state.camera_rot.y =
+        (state.camera_rot.y - ry * 0.03).clamp(-0.01, FRAC_PI_2);
+
+    let rainbow_delta =
+        check_input_axis(input, GamepadButton::A, GamepadButton::B);
+    state.rainbow = (state.rainbow + rainbow_delta * 0.03).clamp(0.0, 1.0);
 }
 
 fn draw(state: &State) {
@@ -157,64 +226,64 @@ fn draw(state: &State) {
     vdp::set_vu_layout(1, 16, VertexSlotFormat::FLOAT4);
     vdp::set_vu_layout(2, 32, VertexSlotFormat::FLOAT4);
     vdp::set_vu_layout(3, 48, VertexSlotFormat::FLOAT4);
+    vdp::upload_vu_program(PRG_PROJ);
+
+    let model_texture = Texture::new(
+        MODEL_TEXTURE.width().try_into().unwrap(),
+        MODEL_TEXTURE.height().try_into().unwrap(),
+        false,
+        TextureFormat::RGBA8888,
+    )
+    .unwrap();
+    model_texture.set_texture_data(0, &MODEL_TEXTURE);
+
+    let floor_texture = Texture::new(
+        FLOOR_TEXTURE.width().try_into().unwrap(),
+        FLOOR_TEXTURE.height().try_into().unwrap(),
+        false,
+        TextureFormat::RGBA8888,
+    )
+    .unwrap();
+    floor_texture.set_texture_data(0, &FLOOR_TEXTURE);
 
     let projection =
-        Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 1.0, 0.0, 1.0);
-    let mat = Matrix4x4::translation(Vector3::new(0.0, -1.0, 0.0))
+        Matrix4x4::projection_ortho_aspect(640.0 / 480.0, 4.0, 0.0, 1.0);
+    let mat = Matrix4x4::translation(state.player_pos - state.camera_pos)
         * Matrix4x4::rotation(Quaternion::from_euler(Vector3::new(
             0.0,
-            state.rot_x,
+            state.player_rot + state.camera_rot.x,
             0.0,
         )))
         * Matrix4x4::rotation(Quaternion::from_euler(Vector3::new(
-            state.rot_y,
+            state.camera_rot.y,
             0.0,
             0.0,
         )))
         * Matrix4x4::scale(Vector3::new(0.2, 0.2, 0.2))
         * projection;
     set_vu_cdata_matrix4x4(0, mat);
-    vdp::upload_vu_program(PRG_PROJ);
 
-    let texture =
-        Texture::new(256, 256, false, TextureFormat::RGBA8888).unwrap();
-    texture.set_texture_data(0, &TEXTURE_DATA);
-    vdp::bind_texture_slot(TextureUnit::TU0, Some(&texture));
+    vdp::bind_texture_slot(TextureUnit::TU0, Some(&model_texture));
     vdp::submit_vu::<f32>(Topology::TriangleList, &MODEL_DATA);
-    vdp::bind_texture_slot(TextureUnit::TU0, None::<&Texture>);
 
-    // floor
-    let floor_color = [1.0, 1.0, 1.0, 1.0];
-    vdp::submit_vu::<f32>(
-        Topology::TriangleList,
-        [
-            [-10.0, 0.0, -10.0, 1.0],
-            floor_color,
-            [0.0; 4],
-            [0.0; 4],
-            [-10.0, 0.0, 10.0, 1.0],
-            floor_color,
-            [0.0; 4],
-            [0.0; 4],
-            [10.0, 0.0, 10.0, 1.0],
-            floor_color,
-            [0.0; 4],
-            [0.0; 4],
-            [-10.0, 0.0, -10.0, 1.0],
-            floor_color,
-            [0.0; 4],
-            [0.0; 4],
-            [10.0, 0.0, 10.0, 1.0],
-            floor_color,
-            [0.0; 4],
-            [0.0; 4],
-            [10.0, 0.0, -10.0, 1.0],
-            floor_color,
-            [0.0; 4],
-            [0.0; 4],
-        ]
-        .as_flattened(),
-    );
+    let mat = Matrix4x4::translation(state.camera_pos)
+        * Matrix4x4::rotation(Quaternion::from_euler(Vector3::new(
+            0.0,
+            state.camera_rot.x,
+            0.0,
+        )))
+        * Matrix4x4::rotation(Quaternion::from_euler(Vector3::new(
+            state.camera_rot.y,
+            0.0,
+            0.0,
+        )))
+        * Matrix4x4::scale(Vector3::new(0.2, 0.2, 0.2))
+        * projection;
+    set_vu_cdata_matrix4x4(0, mat);
+
+    vdp::bind_texture_slot(TextureUnit::TU0, Some(&floor_texture));
+    vdp::submit_vu::<f32>(Topology::TriangleList, &FLOOR_DATA);
+    vdp::bind_texture_slot(TextureUnit::TU0, None::<&Texture>);
 
     set_vu_cdata_matrix4x4(0, Matrix4x4::identity());
     vdp::blend_equation(BlendEquation::Add);
