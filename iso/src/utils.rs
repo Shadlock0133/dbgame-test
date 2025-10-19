@@ -7,8 +7,12 @@ pub const LOGIC_SIZE_U32: u32 = 0x800;
 pub const SECTOR_SIZE: u32 = 0x200;
 pub const LOGIC_SIZE_U16: u16 = 0x800;
 
-pub fn align_up(value: i32, padding: i32) -> i32 {
+pub fn align_up_i32(value: i32, padding: i32) -> i32 {
     (value + (padding - 1)) & -padding
+}
+
+pub fn align_up_u32(value: u32, padding: u32) -> u32 {
+    value.next_multiple_of(padding)
 }
 
 /// Convert filename to DOS-style: <name>.<ext> where <name> is max 8 bytes long
@@ -66,7 +70,7 @@ pub fn get_entry_size(
     if directory_type == 0 {
         // Rock Ridge 'NM' entry
         system_use_field_size += 0x5;
-        system_use_field_size += file_name_len as u32;
+        system_use_field_size += u32::try_from(file_name_len).unwrap();
     }
 
     // root '.' has CE and SP of SUSP
@@ -74,7 +78,9 @@ pub fn get_entry_size(
         system_use_field_size += 0x7 + 0x1c; // SUSP 'SP' + SUSP 'CE'
     }
 
-    base_size + file_identifier_len as u32 + system_use_field_size
+    base_size
+        + u32::try_from(file_identifier_len).unwrap()
+        + system_use_field_size
 }
 
 pub fn write_lba_to_cls<T>(
@@ -100,9 +106,9 @@ where
     sector_number |= (cylinder_number & 0x300) >> 2;
     cylinder_number &= 0xFF;
 
-    output_writter.write_u8(head_number as u8)?;
-    output_writter.write_u8(sector_number as u8)?;
-    output_writter.write_u8(cylinder_number as u8)?;
+    output_writter.write_u8(head_number.try_into().unwrap())?;
+    output_writter.write_u8(sector_number.try_into().unwrap())?;
+    output_writter.write_u8(cylinder_number.try_into().unwrap())?;
 
     Ok(())
 }

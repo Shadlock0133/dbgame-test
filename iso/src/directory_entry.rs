@@ -32,20 +32,26 @@ impl DirectoryEntry {
     where
         T: Write + Seek,
     {
-        let current_pos = output_writter.stream_position()? as i32;
-        let expected_aligned_pos =
-            utils::align_up(current_pos, LOGIC_SIZE_U32 as i32);
+        let current_pos: i32 =
+            output_writter.stream_position()?.try_into().unwrap();
+        let expected_aligned_pos = utils::align_up_i32(
+            current_pos,
+            LOGIC_SIZE_U32.try_into().unwrap(),
+        );
 
         let diff_size = expected_aligned_pos - current_pos;
-        let file_entry_size =
-            directory_entry.get_entry_size(Some(directory_type)) as i32;
+        let file_entry_size: i32 = directory_entry
+            .get_entry_size(Some(directory_type))
+            .try_into()
+            .unwrap();
 
         if file_entry_size > diff_size && diff_size != 0 {
-            let padding: Vec<u8> = vec![0; diff_size as usize];
+            let padding: Vec<u8> = vec![0; diff_size.try_into().unwrap()];
             output_writter.write_all(&padding)?;
         }
 
-        let old_pos = output_writter.stream_position()? as i32;
+        let old_pos: i32 =
+            output_writter.stream_position()?.try_into().unwrap();
 
         let file_name =
             directory_entry.path.file_name().unwrap().to_str().unwrap();
@@ -62,7 +68,7 @@ impl DirectoryEntry {
 
         let file_identifier_len = file_identifier.len();
 
-        output_writter.write_u8(file_entry_size as u8)?;
+        output_writter.write_u8(file_entry_size.try_into().unwrap())?;
 
         // Extended Attribute Record length.
         output_writter.write_u8(0u8)?;
@@ -78,12 +84,15 @@ impl DirectoryEntry {
         }
 
         let record_datetime: DateTime<Utc> = Utc::now();
-        output_writter.write_u8((record_datetime.year() - 1900) as u8)?;
-        output_writter.write_u8((record_datetime.month()) as u8)?;
-        output_writter.write_u8((record_datetime.day()) as u8)?;
-        output_writter.write_u8((record_datetime.hour()) as u8)?;
-        output_writter.write_u8((record_datetime.minute()) as u8)?;
-        output_writter.write_u8((record_datetime.second()) as u8)?;
+        output_writter
+            .write_u8((record_datetime.year() - 1900).try_into().unwrap())?;
+        output_writter.write_u8(record_datetime.month().try_into().unwrap())?;
+        output_writter.write_u8(record_datetime.day().try_into().unwrap())?;
+        output_writter.write_u8(record_datetime.hour().try_into().unwrap())?;
+        output_writter
+            .write_u8(record_datetime.minute().try_into().unwrap())?;
+        output_writter
+            .write_u8(record_datetime.second().try_into().unwrap())?;
         output_writter.write_u8(0u8)?;
 
         // file flags (0x2 == directory)
@@ -96,7 +105,7 @@ impl DirectoryEntry {
             output_writter.write_u16(0x1)?;
         }
 
-        output_writter.write_u8(file_identifier_len as u8)?;
+        output_writter.write_u8(file_identifier_len.try_into().unwrap())?;
         output_writter.write_all(file_identifier)?;
 
         // padding if even
@@ -135,7 +144,7 @@ impl DirectoryEntry {
                 match &directory_entry.continuation_area {
                     Some(continuation_area) => {
                         write_bothendian! {
-                            output_writter.write_u32(continuation_area.len() as u32)?;
+                            output_writter.write_u32(continuation_area.len().try_into().unwrap())?;
                         }
                     }
                     _ => panic!(),
@@ -179,13 +188,15 @@ impl DirectoryEntry {
         // RRIP 'NM' entry (IEEE P1282 4.1.4)
         if directory_type == 0 {
             output_writter.write_all(b"NM")?;
-            output_writter.write_u8(0x5 + file_name.len() as u8)?;
+            output_writter
+                .write_u8((0x5 + file_name.len()).try_into().unwrap())?;
             output_writter.write_u8(0x1)?;
             output_writter.write_u8(0x0)?; // No flags
             output_writter.write_all(file_name.as_bytes())?;
         }
 
-        let new_pos = output_writter.stream_position()? as i32;
+        let new_pos: i32 =
+            output_writter.stream_position()?.try_into().unwrap();
 
         assert!(old_pos + file_entry_size == new_pos);
 
@@ -216,31 +227,31 @@ impl DirectoryEntry {
         size += self.get_entry_size(Some(2)); // '..'
 
         for entry in &self.dir_childs {
-            let entry_size = entry.get_entry_size(Some(0)) as i32;
+            let entry_size = entry.get_entry_size(Some(0));
             let expected_aligned_size =
-                utils::align_up(size as i32, LOGIC_SIZE_U32 as i32);
-            let available_size_in_lb = expected_aligned_size - size as i32;
+                utils::align_up_u32(size, LOGIC_SIZE_U32);
+            let available_size_in_lb = expected_aligned_size - size;
 
             if entry_size > available_size_in_lb && available_size_in_lb != 0 {
                 size = 0;
                 res += 1;
             }
 
-            size += entry_size as u32;
+            size += entry_size;
         }
 
         for entry in &self.files_childs {
-            let entry_size = entry.get_entry_size() as i32;
+            let entry_size = entry.get_entry_size();
             let expected_aligned_size =
-                utils::align_up(size as i32, LOGIC_SIZE_U32 as i32);
-            let available_size_in_lb = expected_aligned_size - size as i32;
+                utils::align_up_u32(size, LOGIC_SIZE_U32);
+            let available_size_in_lb = expected_aligned_size - size;
 
             if entry_size > available_size_in_lb && available_size_in_lb != 0 {
                 size = 0;
                 res += 1;
             }
 
-            size += entry_size as u32;
+            size += entry_size;
         }
 
         res
@@ -276,11 +287,12 @@ impl DirectoryEntry {
 
         let file_identifier_len = file_identifier.len();
 
-        output_writter.write_u8(file_identifier_len as u8)?;
+        output_writter.write_u8(file_identifier_len.try_into().unwrap())?;
         output_writter.write_u8(0x0u8)?;
         output_writter.write_u32::<Order>(directory_entry.lba)?;
-        output_writter
-            .write_u16::<Order>(directory_entry.parent_index as u16)?;
+        output_writter.write_u16::<Order>(
+            directory_entry.parent_index.try_into().unwrap(),
+        )?;
         output_writter.write_all(file_identifier)?;
 
         // padding if odd
@@ -340,14 +352,21 @@ impl DirectoryEntry {
         self.write_path_table_childs::<T, Order>(output_writter)?;
 
         // Pad to LBA size
-        let current_pos = output_writter.stream_position()? as usize;
-        let expected_aligned_pos =
-            ((current_pos as i64) & -LOGIC_SIZE_I64) as usize;
+        let current_pos: usize =
+            output_writter.stream_position()?.try_into().unwrap();
+        let expected_aligned_pos: usize = (i64::try_from(current_pos).unwrap()
+            & -LOGIC_SIZE_I64)
+            .try_into()
+            .unwrap();
 
         let diff_size = current_pos - expected_aligned_pos;
 
-        let written_size = current_pos - (old_pos_current_context as usize);
-        assert!(written_size == (self.get_path_table_size() as usize));
+        let written_size =
+            current_pos - usize::try_from(old_pos_current_context).unwrap();
+        assert!(
+            written_size
+                == usize::try_from(self.get_path_table_size()).unwrap()
+        );
 
         if diff_size != 0 {
             let padding: Vec<u8> = vec![0; LOGIC_SIZE - diff_size];
@@ -411,9 +430,12 @@ impl DirectoryEntry {
         }
 
         // Pad to LBA size
-        let current_pos = output_writter.stream_position()? as usize;
-        let expected_aligned_pos =
-            ((current_pos as i64) & -LOGIC_SIZE_I64) as usize;
+        let current_pos: usize =
+            output_writter.stream_position()?.try_into().unwrap();
+        let expected_aligned_pos: usize = (i64::try_from(current_pos).unwrap()
+            & -LOGIC_SIZE_I64)
+            .try_into()
+            .unwrap();
 
         let diff_size = current_pos - expected_aligned_pos;
 
@@ -495,9 +517,12 @@ impl DirectoryEntry {
             std::io::copy(&mut tmp_cursor, output_writter)?;
 
             // Pad to LBA size
-            let current_pos = output_writter.stream_position()? as usize;
-            let expected_aligned_pos =
-                ((current_pos as i64) & -LOGIC_SIZE_I64) as usize;
+            let current_pos: usize =
+                output_writter.stream_position()?.try_into().unwrap();
+            let expected_aligned_pos: usize =
+                (i64::try_from(current_pos).unwrap() & -LOGIC_SIZE_I64)
+                    .try_into()
+                    .unwrap();
 
             let diff_size = current_pos - expected_aligned_pos;
 
@@ -621,12 +646,14 @@ impl DirectoryEntry {
                 file_type: FileType::Regular {
                     path: path.to_path_buf(),
                 },
-                size: metadata.len() as usize,
+                size: metadata.len().try_into().unwrap(),
                 lba: 0,
-                aligned_size: utils::align_up(
-                    metadata.len() as i32,
-                    LOGIC_SIZE_U32 as i32,
-                ) as usize,
+                aligned_size: utils::align_up_u32(
+                    metadata.len().try_into().unwrap(),
+                    LOGIC_SIZE_U32,
+                )
+                .try_into()
+                .unwrap(),
             })
         }
 
@@ -655,12 +682,14 @@ impl DirectoryEntry {
             } else if entry_meta.is_file() {
                 files_childs.push(FileEntry {
                     file_type: FileType::Regular { path: entry.path() },
-                    size: entry_meta.len() as usize,
+                    size: entry_meta.len().try_into().unwrap(),
                     lba: 0,
-                    aligned_size: utils::align_up(
-                        entry_meta.len() as i32,
-                        LOGIC_SIZE_U32 as i32,
-                    ) as usize,
+                    aligned_size: utils::align_up_u32(
+                        entry_meta.len().try_into().unwrap(),
+                        LOGIC_SIZE_U32,
+                    )
+                    .try_into()
+                    .unwrap(),
                 })
             }
         }

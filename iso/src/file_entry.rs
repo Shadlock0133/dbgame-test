@@ -47,25 +47,25 @@ impl FileEntry {
     where
         T: Write + Seek,
     {
-        let current_pos = output_writter.stream_position()? as i32;
+        let current_pos = output_writter.stream_position()?;
         let expected_aligned_pos =
-            utils::align_up(current_pos, LOGIC_SIZE_U32 as i32);
+            current_pos.next_multiple_of(LOGIC_SIZE_U32.into());
 
         let diff_size = expected_aligned_pos - current_pos;
-        let file_entry_size = self.get_entry_size() as i32;
+        let file_entry_size = self.get_entry_size();
 
-        if file_entry_size > diff_size && diff_size != 0 {
-            let padding: Vec<u8> = vec![0; diff_size as usize];
+        if u64::from(file_entry_size) > diff_size && diff_size != 0 {
+            let padding: Vec<u8> = vec![0; diff_size.try_into().unwrap()];
             output_writter.write_all(&padding)?;
         }
 
-        let old_pos = output_writter.stream_position()? as i32;
+        let old_pos = output_writter.stream_position()?;
 
         let file_name = self.get_file_name();
         let file_identifier = utils::convert_name(&file_name);
         let file_identifier_len = file_identifier.len() + 2;
 
-        output_writter.write_u8(file_entry_size as u8)?;
+        output_writter.write_u8(file_entry_size.try_into().unwrap())?;
 
         // Extended Attribute Record length.
         output_writter.write_u8(0u8)?;
@@ -77,16 +77,19 @@ impl FileEntry {
 
         // Extent size
         write_bothendian! {
-            output_writter.write_u32(self.size as u32)?;
+            output_writter.write_u32(self.size.try_into().unwrap())?;
         }
 
         let record_datetime: DateTime<Utc> = Utc::now();
-        output_writter.write_u8((record_datetime.year() - 1900) as u8)?;
-        output_writter.write_u8((record_datetime.month()) as u8)?;
-        output_writter.write_u8((record_datetime.day()) as u8)?;
-        output_writter.write_u8((record_datetime.hour()) as u8)?;
-        output_writter.write_u8((record_datetime.minute()) as u8)?;
-        output_writter.write_u8((record_datetime.second()) as u8)?;
+        output_writter
+            .write_u8((record_datetime.year() - 1900).try_into().unwrap())?;
+        output_writter.write_u8(record_datetime.month().try_into().unwrap())?;
+        output_writter.write_u8(record_datetime.day().try_into().unwrap())?;
+        output_writter.write_u8(record_datetime.hour().try_into().unwrap())?;
+        output_writter
+            .write_u8(record_datetime.minute().try_into().unwrap())?;
+        output_writter
+            .write_u8(record_datetime.second().try_into().unwrap())?;
         output_writter.write_u8(0u8)?;
 
         // file flags
@@ -99,7 +102,7 @@ impl FileEntry {
             output_writter.write_u16(0x1)?;
         }
 
-        output_writter.write_u8(file_identifier_len as u8)?;
+        output_writter.write_u8(file_identifier_len.try_into().unwrap())?;
         output_writter.write_all(&file_identifier[..])?;
         output_writter.write_all(b";1")?;
 
@@ -141,14 +144,14 @@ impl FileEntry {
 
         // RRIP 'NM' entry (IEEE P1282 4.1.4)
         output_writter.write_all(b"NM")?;
-        output_writter.write_u8(0x5 + file_name.len() as u8)?;
+        output_writter.write_u8((0x5 + file_name.len()).try_into().unwrap())?;
         output_writter.write_u8(0x1)?;
         output_writter.write_u8(0x0)?; // No flags
         output_writter.write_all(file_name.as_bytes())?;
 
-        let new_pos = output_writter.stream_position()? as i32;
+        let new_pos = output_writter.stream_position()?;
 
-        assert!(old_pos + file_entry_size == new_pos);
+        assert!(old_pos + u64::from(file_entry_size) == new_pos);
 
         Ok(())
     }
@@ -164,9 +167,12 @@ impl FileEntry {
         match &self.file_type {
             FileType::Buffer { data, .. } => {
                 self.size = data.len();
-                self.aligned_size =
-                    utils::align_up(self.size as i32, LOGIC_SIZE_U32 as i32)
-                        as usize;
+                self.aligned_size = utils::align_up_i32(
+                    self.size.try_into().unwrap(),
+                    LOGIC_SIZE_U32.try_into().unwrap(),
+                )
+                .try_into()
+                .unwrap();
             }
             _ => unimplemented!(),
         }
@@ -188,9 +194,12 @@ impl FileEntry {
         let mut file: Box<dyn Read> = self.open_content_provider();
         io::copy(&mut file, output_writter)?;
 
-        let current_pos = output_writter.stream_position()? as usize;
-        let expected_aligned_pos =
-            ((current_pos as i64) & -LOGIC_SIZE_I64) as usize;
+        let current_pos: usize =
+            output_writter.stream_position()?.try_into().unwrap();
+        let expected_aligned_pos: usize = (i64::try_from(current_pos).unwrap()
+            & -LOGIC_SIZE_I64)
+            .try_into()
+            .unwrap();
 
         let diff_size = current_pos - expected_aligned_pos;
 

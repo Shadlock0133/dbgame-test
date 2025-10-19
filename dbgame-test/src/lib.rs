@@ -1,3 +1,5 @@
+#![deny(clippy::as_conversions)]
+
 use std::{
     f32::consts::{FRAC_PI_2, TAU},
     sync::{LazyLock, Mutex},
@@ -6,10 +8,13 @@ use std::{
 use byteorder::{LE, ReadBytesExt};
 use image::{ImageBuffer, ImageFormat, Rgba};
 use sdk::{
-    db::{log, register_panic}, gamepad::{Gamepad, GamepadButton, GamepadSlot, GamepadState}, logfmt, math::{Matrix4x4, Quaternion, Vector2, Vector3}, vdp::{
+    db::{log, register_panic},
+    gamepad::{Gamepad, GamepadButton, GamepadSlot, GamepadState},
+    math::{Matrix4x4, Quaternion, Vector2, Vector3},
+    vdp::{
         self, BlendEquation, BlendFactor, Color32, Texture, TextureFormat,
         TextureUnit, Topology, VertexSlotFormat,
-    }
+    },
 };
 
 const BG: Color32 = Color32::new(20, 30, 42, 255);
@@ -91,10 +96,12 @@ fn decode_data(mut model: &[u8]) -> Vec<f32> {
             f.map(|(vi, vti)| {
                 let mut out = [[0.0; 4]; 4];
 
-                out[0][..3].copy_from_slice(&verts[vi as usize]);
+                out[0][..3]
+                    .copy_from_slice(&verts[usize::try_from(vi).unwrap()]);
                 out[0][3] = 1.0;
                 out[1] = [1.0; 4];
-                out[3][..2].copy_from_slice(&vert_texs[vti as usize]);
+                out[3][..2]
+                    .copy_from_slice(&vert_texs[usize::try_from(vti).unwrap()]);
 
                 out
             })
@@ -175,14 +182,18 @@ fn check_input_axis(
 }
 
 fn i16_to_f32(value: i16) -> f32 {
-    (value as f32 / i16::MAX as f32).clamp(-1.0, 1.0)
+    (f32::from(value) / f32::from(i16::MAX)).clamp(-1.0, 1.0)
 }
 
 fn update(state: &mut State, input: GamepadState) {
-    let lx = i16_to_f32(input.left_stick_x);
-    let ly = i16_to_f32(input.left_stick_y);
-    let rx = i16_to_f32(input.right_stick_x);
-    let ry = i16_to_f32(input.right_stick_y);
+    let ls = Vector2::new(
+        i16_to_f32(input.left_stick_x),
+        i16_to_f32(input.left_stick_y),
+    );
+    let rs = Vector2::new(
+        i16_to_f32(input.right_stick_x),
+        i16_to_f32(input.right_stick_y),
+    );
 
     let height_delta =
         check_input_axis(input, GamepadButton::L1, GamepadButton::R1);
@@ -197,15 +208,21 @@ fn update(state: &mut State, input: GamepadState) {
     let player_dir_side =
         Vector2::new(state.player_rot.cos(), -state.player_rot.sin());
 
-    state.player_pos.z += (ly * -0.06 * player_dir).y;
-    state.player_pos.y += height_delta * 0.06;
-    state.player_pos.x += (lx * 0.06 * player_dir_side).x;
+    let deadzone = 0.2;
+
+    if ls.length() > deadzone {
+        state.player_pos.z += (ls.y * -0.06 * player_dir).y;
+        state.player_pos.y += height_delta * 0.06;
+        state.player_pos.x += (ls.x * 0.06 * player_dir_side).x;
+    }
 
     state.camera_pos = state.player_pos;
 
-    state.camera_rot.x += rx * 0.03;
-    state.camera_rot.y =
-        (state.camera_rot.y - ry * 0.03).clamp(-0.01, FRAC_PI_2);
+    if rs.length() > deadzone {
+        state.camera_rot.x += rs.x * 0.03;
+        state.camera_rot.y =
+            (state.camera_rot.y - rs.y * 0.03).clamp(-0.01, FRAC_PI_2);
+    }
 
     let rainbow_delta =
         check_input_axis(input, GamepadButton::A, GamepadButton::B);

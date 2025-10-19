@@ -1,3 +1,5 @@
+#![deny(clippy::as_conversions)]
+
 use std::{
     env, fs,
     io::BufReader,

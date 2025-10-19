@@ -409,24 +409,35 @@ pub fn get_depth_query_result() -> i32 {
 
 /// Set one of VU's 16 const data slots to given vector
 pub fn set_vu_cdata(offset: usize, data: &Vector4) {
-    unsafe { vdp_setVUCData(offset as i32, <*const _>::cast(data)) }
+    unsafe {
+        vdp_setVUCData(offset.try_into().unwrap(), <*const _>::cast(data))
+    }
 }
 
 /// Configure input vertex element slot layout
 pub fn set_vu_layout(slot: usize, offset: usize, format: VertexSlotFormat) {
-    unsafe { vdp_setVULayout(slot as i32, offset as i32, format) }
+    unsafe {
+        vdp_setVULayout(
+            slot.try_into().unwrap(),
+            offset.try_into().unwrap(),
+            format,
+        )
+    }
 }
 
 /// Set stride of input vertex data (size of each vertex in bytes)
 pub fn set_vu_stride(stride: usize) {
-    unsafe { vdp_setVUStride(stride as i32) }
+    unsafe { vdp_setVUStride(stride.try_into().unwrap()) }
 }
 
 /// Upload a new VU program
 pub fn upload_vu_program(program: &[u32]) {
     unsafe {
         let program_len = core::mem::size_of_val(program);
-        vdp_uploadVUProgram(program.as_ptr().cast(), program_len as i32)
+        vdp_uploadVUProgram(
+            program.as_ptr().cast(),
+            program_len.try_into().unwrap(),
+        )
     }
 }
 
@@ -434,7 +445,11 @@ pub fn upload_vu_program(program: &[u32]) {
 pub fn submit_vu<T>(topology: Topology, data: &[T]) {
     unsafe {
         let data_len = core::mem::size_of_val(data);
-        vdp_submitVU(topology, data.as_ptr().cast(), data_len as i32)
+        vdp_submitVU(
+            topology,
+            data.as_ptr().cast(),
+            data_len.try_into().unwrap(),
+        )
     }
 }
 

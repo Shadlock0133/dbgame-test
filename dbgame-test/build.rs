@@ -1,3 +1,5 @@
+#![deny(clippy::as_conversions)]
+
 use std::{
     env,
     fs::{self, File},
@@ -16,6 +18,13 @@ fn main() {
 struct Vert {
     pos: [f32; 3],
     color: [u8; 4],
+}
+
+#[track_caller]
+#[allow(clippy::as_conversions)]
+fn f32_to_u8(value: f32) -> u8 {
+    assert!((0.0..=1.0).contains(&value));
+    (value * 255.0).round() as u8
 }
 
 fn obj(out_dir: &Path, obj_path: &Path) {
@@ -45,7 +54,7 @@ fn obj(out_dir: &Path, obj_path: &Path) {
                     let pos = [x, y, z].map(|v| v.parse().unwrap());
                     let [r, g, b] = [r, g, b]
                         .map(|v| v.parse::<f32>().unwrap())
-                        .map(|x| (x * 255.0) as u8);
+                        .map(f32_to_u8);
                     verts.push(Vert {
                         pos,
                         color: [r, g, b, 255],
@@ -80,7 +89,7 @@ fn obj(out_dir: &Path, obj_path: &Path) {
         out_dir.join(obj_path.with_extension("3d").file_name().unwrap()),
     )
     .unwrap();
-    out_file.write_all(&[has_vert_colors as u8]).unwrap();
+    out_file.write_all(&[has_vert_colors.into()]).unwrap();
     let verts_len = u32::try_from(verts.len()).unwrap();
     out_file.write_all(&verts_len.to_le_bytes()).unwrap();
     let vert_texs_len = u32::try_from(vert_texs.len()).unwrap();

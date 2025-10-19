@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(clippy::as_conversions)]
 
 mod alloc;
 pub mod audio;

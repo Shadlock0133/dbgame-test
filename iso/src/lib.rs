@@ -1,3 +1,5 @@
+#![deny(clippy::as_conversions)]
+
 #[macro_use]
 mod utils;
 mod directory_entry;
@@ -58,8 +60,9 @@ fn reserve_file_space(
     current_lba: &mut u32,
 ) {
     for child_file in &mut directory_entry.files_childs {
-        let lba_count =
-            ((child_file.size as u32) + LOGIC_SIZE_U32) / LOGIC_SIZE_U32;
+        let lba_count = (u32::try_from(child_file.size).unwrap()
+            + LOGIC_SIZE_U32)
+            / LOGIC_SIZE_U32;
         child_file.lba = *current_lba;
         *current_lba += lba_count;
     }
@@ -144,7 +147,7 @@ fn fill_boot_catalog(
     buff.write_u8(0x0)?;
 
     // Sector count
-    buff.write_u16::<LittleEndian>(sector_count as u16)?;
+    buff.write_u16::<LittleEndian>(sector_count.try_into().unwrap())?;
 
     // LBA of the file
     buff.write_u32::<LittleEndian>(eltorito_lba)?;
@@ -188,7 +191,7 @@ fn patch_boot_image(
         buff.write_u32::<LittleEndian>(file.lba)?;
 
         // Length of boot file.
-        buff.write_u32::<LittleEndian>(file.size as u32)?;
+        buff.write_u32::<LittleEndian>(file.size.try_into().unwrap())?;
 
         // Checksum (actually ignored by GRUB2)
         // FIXME: should we implement it?
@@ -236,7 +239,9 @@ where
 
     if let Some(embedded_boot) = embedded_boot {
         let path: PathBuf = PathBuf::from_str(&embedded_boot).unwrap();
-        if path.metadata().unwrap().len() > (LOGIC_SIZE * 0x10) as u64 {
+        if path.metadata().unwrap().len()
+            > (LOGIC_SIZE * 0x10).try_into().unwrap()
+        {
             return Err(std::io::Error::other(
                 "generic boot file is bigger than 32768 bytes!",
             ));
@@ -259,7 +264,8 @@ where
     }
 
     // Pad to 0x8000 if needed
-    let diff_size = current_pos as usize - old_pos as usize;
+    let diff_size = usize::try_from(current_pos).unwrap()
+        - usize::try_from(old_pos).unwrap();
 
     if diff_size != LOGIC_SIZE * 0x10 {
         let padding: Vec<u8> = vec![0; LOGIC_SIZE * 0x10 - diff_size];
@@ -331,7 +337,8 @@ pub fn create_iso(opt: &option::Opt) -> std::io::Result<Vec<u8>> {
 
     let mut out = Cursor::new(Vec::new());
 
-    let mut current_lba: u32 = 0x10 + 1 + (volume_descriptor_list.len() as u32);
+    let mut current_lba: u32 =
+        0x10 + 1 + u32::try_from(volume_descriptor_list.len()).unwrap();
 
     let path_table_start_lba = current_lba;
 
